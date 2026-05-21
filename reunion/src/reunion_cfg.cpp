@@ -36,6 +36,60 @@ bool Reunion_Cfg_LoadDefault()
 	return true;
 }
 
+size_t Reunion_Cfg_GenerateRandomSteamIdSalt(char* steamIdHashSalt)
+{
+	unsigned char iv[16];
+	size_t ret = 0;
+	memset(iv, 0, sizeof(iv));
+#ifdef _WIN32
+	HMODULE m = LoadLibraryA("advapi32");
+	if (m) {
+		void *fn = GetProcAddress(m, "SystemFunction036"); // available in WinXP and later
+		if (fn) {
+			((unsigned char (__stdcall *)(void*,unsigned long))fn)((void *)iv,16);
+		}
+	}
+#else
+	FILE *tmp = fopen("/dev/urandom","rb");
+	if (tmp) {
+		fread((void *)iv,16,1,tmp);
+		fclose(tmp);
+	}
+#endif
+	if (*(uint64_t*)&iv[0] || *(uint64_t*)&iv[8]) {
+		for (unsigned int i = 0; i < 16; i++) {
+			steamIdHashSalt[i*2] = (iv[i] >> 4) < 10 ? (iv[i] >> 4) + 48: (iv[i] >> 4) + 87;
+			steamIdHashSalt[i*2+1] = (iv[i] & 0x0F) < 10 ? (iv[i] & 0x0F) + 48 : (iv[i] & 0x0F) + 87;
+		}
+		steamIdHashSalt[32] = 0;
+		FILE* fl = CReunionConfig::open(REUNION_CFG_FILE, "r+");
+		if (fl) {
+			bool found = false;
+			char linebuf[2048];
+			std::vector<std::string> lines;
+			while (fgets(linebuf, sizeof(linebuf), fl)) {
+				if (!strncmp(linebuf, "SteamIdHashSalt", 15)) {
+					sprintf(linebuf, "SteamIdHashSalt = %s\n", steamIdHashSalt);
+					found = true;
+				}
+				lines.emplace_back(linebuf);
+			}
+			if (!found) {
+				sprintf(linebuf, "\nSteamIdHashSalt = %s\n", steamIdHashSalt);
+				lines.emplace_back(linebuf);
+			}
+			if (!fseek(fl, 0, 0) && !ftruncate(fileno(fl), 0)) {
+				for(size_t i = 0; i < lines.size(); i++) {
+					fwrite(lines[i].c_str(), 1, lines[i].length(), fl);
+				}
+				ret = strlen(steamIdHashSalt);
+			}
+			fclose(fl);
+		}
+	}
+	return ret;
+}
+
 bool CReunionConfig::parseExceptIP(const char *param, const char *value, int cline)
 {
 	ipv4_t ipv4;
@@ -129,7 +183,7 @@ CReunionConfig* CReunionConfig::createDefault()
 
 	cfg->m_LogMode = rl_console | rl_logfile;
 
-	cfg->m_AuthVersion = av_reunion2015;
+	cfg->m_AuthVersion = av_reunion2024;
 	cfg->m_ServerAnswerType = sat_source;
 
 	cfg->m_bSC2009RevEmuCompat = true;
@@ -157,7 +211,7 @@ CReunionConfig* CReunionConfig::createDefault()
 	cfg->m_AuthIdGenOptions[CA_SETTI].id_kind = CI_STEAM_ID_LAN;
 
 	cfg->m_AuthIdGenOptions[CA_STEAM].id_kind = CI_REAL_STEAM;
-	cfg->m_AuthIdGenOptions[CA_STEAM_PENDING].id_kind = CI_STEAM_ID_PENDING;
+	cfg->m_AuthIdGenOptions[CA_STEAM_PENDING].id_kind = CI_DEPRECATED;
 
 	cfg->m_AuthIdGenOptions[CA_STEAM_EMU].id_kind = CI_STEAM_ID_LAN;
 	cfg->m_AuthIdGenOptions[CA_OLD_REVEMU].id_kind = CI_STEAM_ID_LAN;
@@ -214,11 +268,11 @@ bool CReunionConfig::parseCfgParam()
 	if (!strcasecmp(paramName, param)) { \
 		int i = atoi(value); \
 		if (i <= CI_UNKNOWN || i >= CI_MAX || i == CI_RESERVED) { \
-			LCPrintf(true, "Invalid %s value '%s'\n", param, value); \
+			LCPrintf(true, "Invalid %s value '%s' (out of range; expected 1..%d, excluding %d)\n", param, value, CI_MAX - 1, CI_RESERVED); \
 			continue; \
 		} \
 		if(!IsNumericAuthKind(authkind) && (i == CI_REAL_STEAM || i == CI_REAL_VALVE)) { \
-			LCPrintf(true, "Invalid %s value '%s'\n", param, value); \
+			LCPrintf(true, "Invalid %s value '%s': real STEAM/VALVE id (1,2) requires a numeric auth kind; use 3,4,5,8,9,10,11, or 12\n", param, value); \
 			continue; \
 		} \
 		m_AuthIdGenOptions[authkind].id_kind = (client_id_kind) i; \
@@ -229,7 +283,7 @@ bool CReunionConfig::parseCfgParam()
 	if (!strcasecmp(paramName, param)) { \
 		int i = atoi(value); \
 		if (i < minVal || i > maxVal) { \
-			LCPrintf(true, "Invalid %s value '%s'\n", param, value); \
+			LCPrintf(true, "Invalid %s value '%s' (out of range; expected %d..%d)\n", param, value, (int)(minVal), (int)(maxVal)); \
 			continue; \
 		} \
 		field = (_type) i; \
@@ -246,7 +300,7 @@ bool CReunionConfig::parseCfgParam()
 	if (!strcasecmp(paramName, param)) { \
 		int i = atoi(value); \
 		if (i < 0 || i > 1) { \
-			LCPrintf(true, "Invalid %s value '%s'\n", param, value); \
+			LCPrintf(true, "Invalid %s value '%s' (expected 0 or 1)\n", param, value); \
 			continue; \
 		} \
 		field = i ? true : false; \
@@ -327,6 +381,14 @@ bool CReunionConfig::parseCfgParam()
 			|| !Q_stricmp(m_SteamIdHashSalt, "no")
 			|| !Q_stricmp(m_SteamIdHashSalt, "false"));
 
+		// SteamIdHashSalt is blank, generate a new one
+		if (m_SteamIdHashSaltLen == 0) {
+			m_SteamIdHashSaltLen = Reunion_Cfg_GenerateRandomSteamIdSalt(m_SteamIdHashSalt);
+			if (m_SteamIdHashSaltLen >= 16) {
+				LCPrintf(true, "SteamIdHashSalt was blank, a random one was generated and stored to reunion.cfg\n");
+			}
+		}
+
 		if (!bSteamIdNoHashSalt && m_SteamIdHashSaltLen < 16)
 		{
 			LCPrintf(true, "SteamIdHashSalt is not set or too short\n");
@@ -340,30 +402,39 @@ bool CReunionConfig::parseCfgParam()
 	return true;
 }
 
-FILE* CReunionConfig::open(const char* fname)
+FILE* CReunionConfig::open(const char* fname, const char* fmode)
 {
 	char path[MAX_PATH];
-	strncpy(path, gpMetaUtilFuncs->pfnGetPluginPath(PLID), sizeof path - 1);
-	path[sizeof path - 1] = '\0';
+	const char* ppath = gpMetaUtilFuncs->pfnGetPluginPath(PLID);
 
-	char* s = strrchr(path, '/');
-	if (s) {
-		size_t maxlen = sizeof path - 1 - (s + 1 - path);
-		strncpy(s + 1, fname, maxlen);
+	if (ppath) {
+		strncpy(path, ppath, sizeof path - 1);
 		path[sizeof path - 1] = '\0';
 
-		FILE *fl = fopen(path, "r");
-		if (fl) return fl;
+		char* s = strrchr(path, '/');
+		if (s) {
+			size_t maxlen = sizeof path - 1 - (s + 1 - path);
+			strncpy(s + 1, fname, maxlen);
+			path[sizeof path - 1] = '\0';
+	
+		        FILE *fl = fopen(path, fmode);
+			if (fl) return fl;
+		}
 	}
 
 	char gamedir[MAX_PATH];
 	g_engfuncs.pfnGetGameDir(gamedir);
 	snprintf(path, sizeof path, "./%s/%s", gamedir, fname);
-	FILE *fl = fopen(path, "r");
+	FILE *fl = fopen(path, fmode);
 	if (fl) return fl;
 
 	snprintf(path, sizeof path, "./%s", fname);
-	return fopen(path, "r");
+	return fopen(path, fmode);
+}
+
+FILE* CReunionConfig::open(const char* fname)
+{
+	return CReunionConfig::open(fname, "r");
 }
 
 ipv4_error CReunionConfig::ipv4_parse(const char* stringaddr, ipv4_t *result)
