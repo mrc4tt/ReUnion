@@ -161,19 +161,27 @@ jobs:
           fetch-depth: 0
 
       - name: GPG Import
+        env:
+          PUB_ASC: ${{ secrets.PUB_ASC }}
+          KEY_ASC: ${{ secrets.KEY_ASC }}
         run: |
-          echo "${{ secrets.PUB_ASC }}" > "${{ secrets.PUB_ASC_FILE }}"
-          echo "${{ secrets.KEY_ASC }}" > "${{ secrets.KEY_ASC_FILE }}"
+          if [[ -z "$PUB_ASC" || -z "$KEY_ASC" ]]; then
+            echo "GPG secrets (PUB_ASC/KEY_ASC) are not set, skipping GPG import"
+            exit 0
+          fi
+
+          printf '%s\n' "$PUB_ASC" > pub.asc
+          printf '%s\n' "$KEY_ASC" > key.asc
 
           # Import the public key
-          gpg --batch --yes --import "${{ secrets.PUB_ASC_FILE }}"
+          gpg --batch --yes --import pub.asc
           if [[ $? -ne 0 ]]; then
             echo "Error: Failed to import the public key"
             exit 1
           fi
 
           # Import the private key
-          gpg --batch --yes --import "${{ secrets.KEY_ASC_FILE }}"
+          gpg --batch --yes --import key.asc
           if [[ $? -ne 0 ]]; then
             echo "Error: Failed to import the private key"
             exit 2
@@ -271,13 +279,20 @@ jobs:
           github.event_name == 'release' &&
           github.event.action == 'published' &&
           startsWith(github.ref, 'refs/tags/')
+        env:
+          PUB_ASC: ${{ secrets.PUB_ASC }}
+          KEY_ASC: ${{ secrets.KEY_ASC }}
         run: |
 
           # new runner, niw signs
-          echo "${{ secrets.PUB_ASC }}" > "${{ secrets.PUB_ASC_FILE }}"
-          echo "${{ secrets.KEY_ASC }}" > "${{ secrets.KEY_ASC_FILE }}"
-          gpg --batch --yes --import "${{ secrets.PUB_ASC_FILE }}"
-          gpg --batch --yes --import "${{ secrets.KEY_ASC_FILE }}"
+          if [[ -z "$PUB_ASC" || -z "$KEY_ASC" ]]; then
+            echo "Error: GPG secrets (PUB_ASC/KEY_ASC) are not set"
+            exit 1
+          fi
+          printf '%s\n' "$PUB_ASC" > pub.asc
+          printf '%s\n' "$KEY_ASC" > key.asc
+          gpg --batch --yes --import pub.asc
+          gpg --batch --yes --import key.asc
           GPG_LINUX_FINGERPRINT=$(gpg --list-keys --with-colons | grep '^fpr' | head -n 1 | cut -d: -f10)
           echo "$GPG_LINUX_FINGERPRINT:6:" | gpg --batch --import-ownertrust
           echo "GPG_LINUX_FINGERPRINT=$GPG_LINUX_FINGERPRINT" >> $GITHUB_ENV
