@@ -43,7 +43,36 @@ main()
 	pushd build &> /dev/null
 	CC=$CC CXX=$CXX cmake ${args[@]} ..
 	make ${jobs}
+	build_rc=$?
 	popd > /dev/null
+
+	if [[ $build_rc -ne 0 ]]; then
+		echo "Build failed (rc=$build_rc), skipping packaging."
+		exit $build_rc
+	fi
+
+	package
+}
+
+# Replicates the Linux "Move files" step from .github/workflows/build.yml,
+# producing a publish/ tree laid out the way a release archive expects.
+package()
+{
+	local so="build/reunion/reunion_mm_i386.so"
+
+	if [[ ! -f "$so" ]]; then
+		echo "Error: $so not found, cannot package."
+		exit 1
+	fi
+
+	rm -rf publish
+	mkdir -p publish/addons/reunion publish/addons/amxmodx/scripting publish/src
+	rsync -a reunion/dist/ publish/ --exclude=*.tpl
+	rsync -a reunion/src/reunion_api.h publish/src/
+	rsync -a reunion/extra/ publish/addons/amxmodx/scripting/
+	cp "$so" publish/addons/reunion/reunion_mm_i386.so
+
+	echo "Packaged release files into publish/"
 }
 
 help()

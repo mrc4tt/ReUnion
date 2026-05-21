@@ -215,7 +215,7 @@ void CServerInfo::sendResponse(const netadr_t& adr, response_t& response)
 
 void CServerInfo::sendQueryChallenge(const netadr_t& to)
 {
-	uint8 buf[16];
+	uint8 buf[16] = {};
 	CSizeBuf szbuf(buf, sizeof buf);
 
 	szbuf.WriteLong(CONNECTIONLESS_HEADER);
@@ -258,7 +258,7 @@ void CServerInfo::sendPlayersList(const netadr_t& to)
 
 void CServerInfo::sendEmptyPlayersList(const netadr_t& to)
 {
-	uint8 buf[16];
+	uint8 buf[16] = {};
 	CSizeBuf szbuf(buf, sizeof buf);
 
 	szbuf.WriteLong(CONNECTIONLESS_HEADER);		// connectionless header

@@ -58,7 +58,7 @@ void Reunion_Reject_Deprecated(client_auth_kind authkind) {
 void SaltSteamId(authdata_t* authdata) {
 	// We hash [steamid + raw ticket data + salt]
 	// This makes impossible to substitute exact id if you know only old, not hashed id
-	byte buf[MAX_HASHDATA_LEN];
+	byte buf[MAX_HASHDATA_LEN] = {};
 	CSizeBuf szbuf(buf, sizeof buf);
 
 	if (g_ReunionConfig->getAuthVersion() < av_reunion2018)
