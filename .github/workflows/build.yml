@@ -118,11 +118,15 @@ jobs:
         if: github.event_name != 'pull_request'
         env:
           KEY_PFX_PASS: ${{ secrets.KEY_PFX_PASS }}
+          KEY_PFX_B64: ${{ secrets.KEY_PFX_B64 }}
         # https://github.com/actions/runner-images/blob/main/images/windows/Windows2025-Readme.md
         run: |
-               $pfxBase64 = "${{ secrets.KEY_PFX_B64 }}"
-               [IO.File]::WriteAllBytes("${{ github.workspace }}\signing-cert.pfx", [Convert]::FromBase64String($pfxBase64))
-               certutil -f -p "${{ secrets.KEY_PFX_PASS }}" -importPFX "${{ github.workspace }}\signing-cert.pfx"
+               if ([string]::IsNullOrEmpty($env:KEY_PFX_B64) -or [string]::IsNullOrEmpty($env:KEY_PFX_PASS)) {
+                 Write-Host "PFX secrets (KEY_PFX_B64/KEY_PFX_PASS) not set, skipping signing"
+                 exit 0
+               }
+               [IO.File]::WriteAllBytes("${{ github.workspace }}\signing-cert.pfx", [Convert]::FromBase64String($env:KEY_PFX_B64))
+               certutil -f -p $env:KEY_PFX_PASS -importPFX "${{ github.workspace }}\signing-cert.pfx"
                & 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x86\signtool.exe' sign /a /f "${{ github.workspace }}\signing-cert.pfx"  /p $env:KEY_PFX_PASS /d "ReUnion - reunion_mm.dll" /du "https://rehlds.dev/" /tr "http://timestamp.digicert.com" /td sha256 /fd sha256 /v ${{ github.workspace }}\publish\addons\reunion\reunion_mm.dll
                Remove-Item -Recurse -Force "${{ github.workspace }}\signing-cert.pfx"
         shell: "pwsh"
