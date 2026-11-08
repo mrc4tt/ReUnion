@@ -3,7 +3,7 @@
 # (cl/link from msvc-wine) in place of msbuild. Two steps, two images:
 #
 #   build-windows.sh compile   in Dockerfile.windows (msvc-wine): Release
-#   build-windows.sh finish    in Dockerfile.wine32: publish/, rcedit (needs COMMIT in the environment)
+#   build-windows.sh finish    in Dockerfile.wine32 (Authenticode when /run/sign/cert.pfx is mounted): publish/, rcedit (needs COMMIT in the environment)
 set -euo pipefail
 owner=$(stat -c %u:%g .)
 
@@ -32,6 +32,13 @@ finish)
 		--set-version-string CompanyName "ReHLDS Dev Team" \
 		--set-version-string LegalCopyright "Copyright 2025 Valve, ReHLDS DevTeam" \
 		--set-icon reunion/msvc/icon.ico
+	if [ -f /run/sign/cert.pfx ]; then
+		echo "==> Authenticode signing"
+		f=publish/win32/addons/reunion/reunion_mm.dll
+		osslsigncode sign -pkcs12 /run/sign/cert.pfx -readpass /run/sign/pass -h sha256 \
+			-n "ReUnion - reunion_mm.dll" -i "https://github.com/$SLUG" -ts "$PFX_TIMESTAMP" -in "$f" -out "$f.signed"
+		mv "$f.signed" "$f"
+	fi
 	chown -R "$owner" build-win publish
 	;;
 *) echo "usage: build-windows.sh compile|finish" >&2; exit 2 ;;
