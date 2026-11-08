@@ -31,3 +31,4 @@ publish
 **/reunion/dist/Readme.txt
 hm
 build-win/
+__pycache__/
